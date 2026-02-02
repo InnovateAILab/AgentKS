@@ -22,20 +22,11 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_core.tools import tool
 
-from langchain_mcp_adapters.client import MultiServerMCPClient
 from .langgraph_adapter import run_agent_with_langgraph
+from .mcp import run_mcp_tool_async
 
 
-# =========================
-# Config
-# =========================
-DATABASE_URL = os.getenv("DATABASE_URL")
-COLLECTION_DOCS = os.getenv("COLLECTION_DOCS", "kb_docs")
-COLLECTION_TOOLS = os.getenv("COLLECTION_TOOLS", "tool_catalog")
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.1")
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+# RAG helpers live in app.rag (imported after PGVector setup)
 
 SEARXNG_URL = os.getenv("SEARXNG_URL", "http://searxng:8080")
 CDS_BASE_URL = os.getenv("CDS_BASE_URL", "https://cds.cern.ch")
@@ -77,7 +68,8 @@ tool_vs = PGVector(
     use_jsonb=True,
 )
 
-splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=120)
+# RAG helpers (split into app.rag)
+from .rag import add_documents, rag_search, fetch_url_text, sha256_text, splitter  # type: ignore
 
 app = FastAPI(title="OpenWebUI Backend: RAG + Auto Tools + MCP (CDS + arXiv + INSPIRE-HEP + SearxNG)")
 
@@ -193,9 +185,6 @@ def db_exec(query: str, params: tuple = ()):
                 return None
 
 
-def sha256_text(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8", errors="ignore")).hexdigest()
-
 
 def tool_run_log(
     tool_id: str,
@@ -206,20 +195,18 @@ def tool_run_log(
     error: Optional[str],
     latency_ms: Optional[int],
 ):
+    # Align with migration-defined tool_runs columns: id, tool_id, input, output, status, started_at, finished_at
     db_exec(
         """
-        INSERT INTO tool_runs (id, tool_id, user_id, request, response, status, error, latency_ms, created_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,now())
+        INSERT INTO tool_runs (id, tool_id, input, output, status, started_at, finished_at)
+        VALUES (%s, %s, %s, %s, %s, now(), now())
         """,
         (
             str(uuid.uuid4()),
             tool_id,
-            user_id,
             json.dumps(request_obj),
             json.dumps(response_obj) if response_obj is not None else None,
             status,
-            error,
-            latency_ms,
         ),
     )
 
@@ -232,37 +219,30 @@ def tool_upsert(
     mcp_server: Optional[str] = None,
     mcp_tool: Optional[str] = None,
 ):
+    # Migration defines tools as: id, name, kind, mcp_id, metadata JSONB, tags JSONB, created_at, updated_at
+    mcp_id = mcp_server
+    metadata = json.dumps(body.config or {})
+    tags = json.dumps([])
     db_exec(
         """
-        INSERT INTO tools (
-            id, name, description, type, config, enabled, scope, provider,
-            mcp_server, mcp_tool, created_by, created_at, updated_at
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), now())
-        ON CONFLICT (name)
+        INSERT INTO tools (id, name, kind, mcp_id, metadata, tags, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, now(), now())
+        ON CONFLICT (id)
         DO UPDATE SET
-          description = EXCLUDED.description,
-          type = EXCLUDED.type,
-          config = EXCLUDED.config,
-          enabled = EXCLUDED.enabled,
-          scope = EXCLUDED.scope,
-          provider = EXCLUDED.provider,
-          mcp_server = EXCLUDED.mcp_server,
-          mcp_tool = EXCLUDED.mcp_tool,
+          name = EXCLUDED.name,
+          kind = EXCLUDED.kind,
+          mcp_id = EXCLUDED.mcp_id,
+          metadata = EXCLUDED.metadata,
+          tags = EXCLUDED.tags,
           updated_at = now()
         """,
         (
             tool_id,
             body.name,
-            body.description,
             body.type,
-            json.dumps(body.config),
-            body.enabled,
-            body.scope,
-            provider,
-            mcp_server,
-            mcp_tool,
-            created_by,
+            mcp_id,
+            metadata,
+            tags,
         ),
     )
 
@@ -271,16 +251,19 @@ def tool_patch(tool_id: str, patch: ToolPatch):
     sets = []
     params = []
     if patch.description is not None:
-        sets.append("description=%s")
-        params.append(patch.description)
+        # map description into metadata.description
+        sets.append("metadata = jsonb_strip_nulls(coalesce(metadata, '{}'::jsonb) || %s::jsonb)")
+        params.append(json.dumps({"description": patch.description}))
     if patch.enabled is not None:
-        sets.append("enabled=%s")
-        params.append(patch.enabled)
+        # no explicit enabled column in current schema; store in metadata
+        sets.append("metadata = jsonb_strip_nulls(coalesce(metadata, '{}'::jsonb) || %s::jsonb)")
+        params.append(json.dumps({"enabled": patch.enabled}))
     if patch.scope is not None:
-        sets.append("scope=%s")
-        params.append(patch.scope)
+        # store scope in metadata
+        sets.append("metadata = jsonb_strip_nulls(coalesce(metadata, '{}'::jsonb) || %s::jsonb)")
+        params.append(json.dumps({"scope": patch.scope}))
     if patch.config is not None:
-        sets.append("config=%s")
+        sets.append("metadata = %s")
         params.append(json.dumps(patch.config))
     sets.append("updated_at=now()")
     params.append(tool_id)
@@ -288,10 +271,7 @@ def tool_patch(tool_id: str, patch: ToolPatch):
 
 
 def tool_get_by_name(name: str):
-    rows = db_exec(
-        "SELECT id,name,description,type,config,enabled,scope,provider,mcp_server,mcp_tool FROM tools WHERE name=%s",
-        (name,),
-    )
+    rows = db_exec("SELECT id,name,kind,mcp_id,metadata,tags FROM tools WHERE name=%s", (name,))
     return rows[0] if rows else None
 
 
@@ -300,8 +280,7 @@ def tool_get_by_ids(ids: List[str]):
         return []
     placeholders = ",".join(["%s"] * len(ids))
     query = (
-        "SELECT id, name, description, type, config, enabled, scope, provider, "
-        "mcp_server, mcp_tool "
+        "SELECT id, name, kind, mcp_id, metadata, tags "
         f"FROM tools WHERE id IN ({placeholders})"
     )
     rows = db_exec(query, tuple(ids)) or []
@@ -310,17 +289,9 @@ def tool_get_by_ids(ids: List[str]):
 
 def tool_list_for_role(role: str):
     if role == "admin":
-        q_admin = (
-            "SELECT id, name, description, type, config, enabled, scope, provider, "
-            "mcp_server, mcp_tool "
-            "FROM tools ORDER BY name"
-        )
+        q_admin = "SELECT id, name, kind, mcp_id, metadata, tags FROM tools ORDER BY name"
         return db_exec(q_admin) or []
-    q = (
-        "SELECT id, name, description, type, config, enabled, scope, provider, "
-        "mcp_server, mcp_tool "
-        "FROM tools WHERE scope='global' ORDER BY name"
-    )
+    q = "SELECT id, name, kind, mcp_id, metadata, tags FROM tools WHERE (metadata->>'scope') = 'global' OR (metadata->>'scope') IS NULL ORDER BY name"
     return db_exec(q) or []
 
 
@@ -340,33 +311,46 @@ def index_tool_desc(tool_id: str, name: str, description: str, enabled: bool, sc
 # Sources table helpers (for URL ingestion tracking)
 # =========================
 def upsert_source(scope: str, user_id: Optional[str], url: str) -> str:
-    url_sha = sha256_text(url)
+    """Upsert into `urls` table and return the url id.
+
+    The project migrations define a canonical `urls` table. Older code used a
+    separate `sources` table; convert that usage to `urls` so ingestion and
+    status tracking use the normalized schema.
+    """
     new_id = str(uuid.uuid4())
+    # Insert or update by unique url; keep scope and set status='queued'.
     rows = db_exec(
         """
-        INSERT INTO sources (id, scope, user_id, url, url_sha256, status, error, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, 'queued', NULL, now(), now())
-        ON CONFLICT (scope, user_id, url_sha256)
-        DO UPDATE SET status='queued', error=NULL, updated_at=now()
+        INSERT INTO urls (id, url, scope, status, created_at)
+        VALUES (%s, %s, %s, 'queued', now())
+        ON CONFLICT (url)
+        DO UPDATE SET scope = EXCLUDED.scope, status = 'queued'
         RETURNING id
         """,
-        (new_id, scope, user_id, url, url_sha),
+        (new_id, url, scope),
     )
     return str(rows[0][0])
 
 
 def mark_source_status(source_id: str, status: str, error: Optional[str] = None, content_sha: Optional[str] = None):
+    # Map source status to the urls table columns (last_fetched_at, last_error)
+    if status in ("ingested", "failed"):
+        fetched_at_clause = "last_fetched_at = now(),"
+    else:
+        fetched_at_clause = ""
+
     db_exec(
-        """
-        UPDATE sources
+        f"""
+        UPDATE urls
         SET status=%s,
-            error=%s,
-            content_sha256=COALESCE(%s, content_sha256),
-            fetched_at=CASE WHEN %s IN ('ingested','failed') THEN now() ELSE fetched_at END,
-            updated_at=now()
+            last_error=%s,
+            {fetched_at_clause}
+            -- keep created_at untouched
+            -- no updated_at column on urls in current schema
+            url = url
         WHERE id=%s
         """,
-        (status, error, content_sha, status, source_id),
+        (status, error, source_id),
     )
 
 
@@ -413,6 +397,40 @@ def ensure_default_tools():
         "searxng_search",
         {"base_url": SEARXNG_URL},
     )
+
+    # Also register available basic tools defined in app.basic_tools. This is
+    # best-effort and idempotent: we only create a DB row when the tool name
+    # is not already present.
+    try:
+        from . import basic_tools
+
+        tool_classes = [
+            basic_tools.DDGSearch,
+            basic_tools.Arxiv,
+            basic_tools.YouSearch,
+            basic_tools.SecFilings,
+            basic_tools.PressReleases,
+            basic_tools.PubMed,
+            basic_tools.Wikipedia,
+            basic_tools.Tavily,
+            basic_tools.TavilyAnswer,
+            basic_tools.DallE,
+        ]
+
+        for cls in tool_classes:
+            try:
+                name = getattr(cls, "name")
+                desc = getattr(cls, "description")
+                typ = getattr(cls, "type").value if getattr(cls, "type", None) is not None else None
+                if not name or not typ:
+                    continue
+                _ensure(name, desc, typ, {})
+            except Exception:
+                # Non-fatal: skip problematic tool
+                continue
+    except Exception:
+        # basic_tools unavailable in some environments (tests/editor); ignore
+        pass
 
 
 @app.on_event("startup")
@@ -624,15 +642,6 @@ def run_inspirehep_search(base_url: str, query: str, size: int, used_urls: Dict[
         _remember_url(used_urls, url)
         out.append({"title": title, "url": url})
     return {"results": out}
-
-
-async def run_mcp_tool_async(mcp_url: str, headers: Dict[str, str], tool_name: str, payload: Dict[str, Any]) -> Any:
-    client = MultiServerMCPClient({"srv": {"transport": "http", "url": mcp_url, "headers": headers}})
-    tools = await client.get_tools()
-    target = next((t for t in tools if t.name == tool_name), None)
-    if not target:
-        raise ValueError(f"MCP tool not found: {tool_name}")
-    return await target.ainvoke(payload)
 
 
 def run_db_tool(row: tuple, user_id: str, payload: Dict[str, Any], used_urls: Dict[str, int]) -> Any:
@@ -854,171 +863,3 @@ def chat_completions(
         "model": req.model,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
     }
-
-
-# =========================
-# Tool management APIs
-# =========================
-@app.get("/api/tools")
-def list_tools(
-    x_openwebui_user_role: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Role"),
-    x_authentik_groups: Optional[str] = Header(default=None, alias="X-Authentik-Groups"),
-):
-    role = get_user_role(x_authentik_groups, x_openwebui_user_role)
-    rows = tool_list_for_role(role)
-    return [
-        {"id": r[0], "name": r[1], "description": r[2], "type": r[3], "enabled": r[5], "scope": r[6], "provider": r[7]}
-        for r in rows
-    ]
-
-
-@app.post("/api/admin/tools")
-def admin_create_tool(
-    body: ToolCreate,
-    x_openwebui_user_id: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Id"),
-    x_openwebui_user_role: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Role"),
-    x_authentik_email: Optional[str] = Header(default=None, alias="X-Authentik-Email"),
-    x_authentik_groups: Optional[str] = Header(default=None, alias="X-Authentik-Groups"),
-):
-    role = get_user_role(x_authentik_groups, x_openwebui_user_role)
-    assert_admin(role)
-    created_by = get_user_id(x_authentik_email, x_openwebui_user_id)
-    tid = str(uuid.uuid4())
-    tool_upsert(tid, body, created_by=created_by)
-    index_tool_desc(tid, body.name, body.description, body.enabled, body.scope)
-    return {"id": tid, "name": body.name}
-
-
-@app.patch("/api/admin/tools/{tool_id}")
-def admin_patch_tool(
-    tool_id: str,
-    patch: ToolPatch,
-    x_openwebui_user_role: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Role"),
-    x_authentik_groups: Optional[str] = Header(default=None, alias="X-Authentik-Groups"),
-):
-    role = get_user_role(x_authentik_groups, x_openwebui_user_role)
-    assert_admin(role)
-    tool_patch(tool_id, patch)
-
-    row = db_exec("SELECT id,name,description,enabled,scope FROM tools WHERE id=%s", (tool_id,))
-    if row:
-        _id, name, desc, enabled, scope = row[0]
-        index_tool_desc(tool_id, name, desc, enabled, scope)
-    return {"ok": True}
-
-
-@app.get("/api/admin/tool-runs")
-def admin_tool_runs(
-    limit: int = Query(100, ge=1, le=500),
-    x_openwebui_user_role: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Role"),
-    x_authentik_groups: Optional[str] = Header(default=None, alias="X-Authentik-Groups"),
-):
-    role = get_user_role(x_authentik_groups, x_openwebui_user_role)
-    assert_admin(role)
-    rows = (
-        db_exec(
-            """
-        SELECT tr.id, tr.tool_id, t.name, tr.user_id, tr.status, tr.error, tr.latency_ms, tr.created_at
-        FROM tool_runs tr
-        JOIN tools t ON t.id = tr.tool_id
-        ORDER BY tr.created_at DESC
-        LIMIT %s
-        """,
-            (limit,),
-        )
-        or []
-    )
-    keys = ["id", "tool_id", "tool_name", "user_id", "status", "error", "latency_ms", "created_at"]
-    return [dict(zip(keys, r)) for r in rows]
-
-
-# =========================
-# Admin: URL ingestion API (no need to rely on agent calling)
-# =========================
-@app.post("/api/admin/ingest/urls")
-def admin_ingest_urls(
-    body: IngestUrlsRequest,
-    x_openwebui_user_id: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Id"),
-    x_openwebui_user_role: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Role"),
-    x_authentik_email: Optional[str] = Header(default=None, alias="X-Authentik-Email"),
-    x_authentik_groups: Optional[str] = Header(default=None, alias="X-Authentik-Groups"),
-):
-    role = get_user_role(x_authentik_groups, x_openwebui_user_role)
-    user_id = get_user_id(x_authentik_email, x_openwebui_user_id)
-
-    if body.scope == "global":
-        assert_admin(role)
-        scope = "global"
-        owner = None
-    else:
-        scope = "private"
-        owner = user_id
-
-    if len(body.urls) > MAX_URLS_PER_REQUEST:
-        raise HTTPException(400, f"Too many URLs. Max is {MAX_URLS_PER_REQUEST}.")
-
-    results = {"ingested": [], "failed": []}
-    for u in body.urls:
-        sid = None
-        try:
-            sid = upsert_source(scope, owner, u)
-            mark_source_status(sid, "fetching")
-            txt = fetch_url_text(u)
-            csha = sha256_text(txt)
-            n = add_documents(
-                scope,
-                user_id,
-                [Document(page_content=txt, metadata={"source_url": u, "source_id": sid, "type": "url"})],
-            )
-            mark_source_status(sid, "ingested", content_sha=csha)
-            results["ingested"].append({"url": u, "chunks": n})
-        except Exception as e:
-            if sid:
-                mark_source_status(sid, "failed", error=str(e))
-            results["failed"].append({"url": u, "error": str(e)})
-
-    return results
-
-
-# =========================
-# MCP sync: admin imports all tools from an MCP server into DB
-# =========================
-@app.post("/api/admin/mcp/sync")
-def admin_mcp_sync(
-    body: MCPSyncRequest,
-    x_openwebui_user_id: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Id"),
-    x_openwebui_user_role: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Role"),
-    x_authentik_email: Optional[str] = Header(default=None, alias="X-Authentik-Email"),
-    x_authentik_groups: Optional[str] = Header(default=None, alias="X-Authentik-Groups"),
-):
-    role = get_user_role(x_authentik_groups, x_openwebui_user_role)
-    assert_admin(role)
-    created_by = get_user_id(x_authentik_email, x_openwebui_user_id)
-
-    async def _sync():
-        client = MultiServerMCPClient(
-            {body.server_name: {"transport": "http", "url": body.url, "headers": body.headers}}
-        )
-        return await client.get_tools()
-
-    mcp_tools = asyncio.run(_sync())
-    imported = []
-
-    for t in mcp_tools:
-        name = f"{body.server_name}__{t.name}"
-        tid = str(uuid.uuid4())
-        tool_create = ToolCreate(
-            name=name,
-            description=t.description or f"MCP tool {t.name}",
-            type="mcp_tool",
-            scope=body.scope,
-            enabled=body.enabled,
-            config={"url": body.url, "headers": body.headers, "tool": t.name},
-        )
-        tool_upsert(
-            tid, tool_create, created_by=created_by, provider="mcp", mcp_server=body.server_name, mcp_tool=t.name
-        )
-        index_tool_desc(tid, tool_create.name, tool_create.description, tool_create.enabled, tool_create.scope)
-        imported.append({"name": name, "mcp_tool": t.name})
-
-    return {"count": len(imported), "imported": imported}

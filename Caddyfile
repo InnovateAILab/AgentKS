@@ -18,7 +18,16 @@
       uri /outpost.goauthentik.io/auth/caddy
       copy_headers X-Authentik-Email X-Authentik-Name X-Authentik-Groups
     }
-    reverse_proxy http://admin_api:4000
+    reverse_proxy http://backend:4000
+  }
+
+  # /web protected by forward_auth (includes /web*)
+  handle_path /web* {
+    forward_auth http://authentik_proxy:9000 {
+      uri /outpost.goauthentik.io/auth/caddy
+      copy_headers X-Authentik-Email X-Authentik-Name X-Authentik-Groups
+    }
+    reverse_proxy http://backend:8000
   }
 
   respond 404
