@@ -14,4 +14,4 @@ langchain-ollama==0.2.2
 langchain-mcp-adapters
 mcp
 
-langgraph==0.7.3
+langgraph==1.0.7
