@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title or "Admin" }}</title>
+
+  <!-- Local static assets (no CDN) -->
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="bg-gray-50">
+  <nav class="topbar">
+    <div class="topbar-inner">
+      <div class="topbar-left">
+        <button class="iconbtn lg:hidden" data-drawer-toggle="sidebar" aria-controls="sidebar" aria-label="Open sidebar">
+          ☰
+        </button>
+        <a href="/admin" class="brand">Admin</a>
+        <span class="subtitle">Flowbite-style (local assets)</span>
+      </div>
+
+      <div class="topbar-right">
+        <div class="userbox">
+          <div class="user-email">{{ user.email }}</div>
+          <div class="user-groups">{{ user.groups }}</div>
+        </div>
+        <div class="avatar">{{ (user.email[0] if user.email else "U")|upper }}</div>
+      </div>
+    </div>
+  </nav>
+
+  <aside id="sidebar" class="sidebar" aria-label="Sidebar">
+    <div class="sidebar-inner">
+      <div class="section-title">DATA</div>
+
+      <ul class="menu">
+        <li>
+          <button type="button" class="menu-btn" data-collapse-toggle="dropdown-urls" aria-controls="dropdown-urls">
+            <span>URLs</span><span class="chev">▾</span>
+          </button>
+          <ul id="dropdown-urls" class="submenu hidden">
+            <li><a href="/admin/urls/add" class="submenu-link">Add URL</a></li>
+            <li><a href="/admin/urls" class="submenu-link">URL List</a></li>
+          </ul>
+        </li>
+
+        <li>
+          <button type="button" class="menu-btn" data-collapse-toggle="dropdown-mcps" aria-controls="dropdown-mcps">
+            <span>MCPs</span><span class="chev">▾</span>
+          </button>
+          <ul id="dropdown-mcps" class="submenu hidden">
+            <li><a href="/admin/mcps/add" class="submenu-link">Add MCP</a></li>
+            <li><a href="/admin/mcps" class="submenu-link">MCP List</a></li>
+          </ul>
+        </li>
+
+        <li>
+          <a href="/admin/rags" class="menu-link">RAGs</a>
+        </li>
+      </ul>
+
+      <div class="section-title mt-16">SYSTEM</div>
+      <ul class="menu">
+        <li><a href="/admin/api/health" class="menu-link">API Health</a></li>
+      </ul>
+    </div>
+  </aside>
+
+  {% set flashes = get_flashed_messages(request) %}
+  {% if flashes %}
+  <div class="container flashes">
+    {% for f in flashes %}
+      <div class="flash {{ 'flash-error' if f.category == 'error' else 'flash-success' }}">{{ f.message }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <main class="main">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
