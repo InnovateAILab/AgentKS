@@ -1,0 +1,15 @@
+[tool.black]
+line-length = 120
+target-version = ["py311"]
+# Use a simple single-line regex for include; Black expects a regex string.
+include = "\\.pyi?$"
+# Exclude common directories from formatting
+# Escape backslashes so TOML parses the regex correctly.
+exclude = "\\.git|\\.venv|build|dist"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+# Keep E203 ignored for black compatibility; W503 removed to avoid unknown-rule errors
+extend-ignore = ["E203"]
+exclude = ["**/.git/**", "**/.venv/**", "build", "dist", "node_modules"]

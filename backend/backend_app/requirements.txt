@@ -1,0 +1,17 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+
+requests==2.32.3
+beautifulsoup4==4.12.3
+psycopg[binary]==3.2.3
+
+langchain==0.3.14
+langchain-postgres==0.0.12
+langchain-text-splitters==0.3.4
+langchain-ollama==0.2.2
+
+langchain-mcp-adapters
+mcp
+
+langgraph==0.7.3

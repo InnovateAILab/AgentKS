@@ -1,0 +1,124 @@
+services:
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+      - AUTH_DOMAIN=${AUTH_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - authentik_server
+      - authentik_proxy
+      - openwebui
+      - admin_api
+
+  postgres:
+    # Use the pgvector-enabled Postgres image so the `vector` extension is available
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AK_POSTGRES_DB}
+      POSTGRES_USER: ${AK_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${AK_POSTGRES_PASSWORD}
+    volumes:
+      - ak_pgdata:/var/lib/postgresql/data
+      # Run any initialization SQL on first startup (create pgvector extension,
+      # seed backend schema). Use backend/initdb so backend-provided init scripts
+      # are executed when the Postgres data directory is first created.
+      - ./backend/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AK_POSTGRES_USER} -d ${AK_POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${AK_REDIS_PASSWORD}"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${AK_REDIS_PASSWORD} ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  authentik_server:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG}
+    restart: unless-stopped
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_REDIS__PASSWORD: ${AK_REDIS_PASSWORD}
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__USER: ${AK_POSTGRES_USER}
+      AUTHENTIK_POSTGRESQL__NAME: ${AK_POSTGRES_DB}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AK_POSTGRES_PASSWORD}
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "9000"
+
+  authentik_worker:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG}
+    restart: unless-stopped
+    command: worker
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_REDIS__PASSWORD: ${AK_REDIS_PASSWORD}
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__USER: ${AK_POSTGRES_USER}
+      AUTHENTIK_POSTGRESQL__NAME: ${AK_POSTGRES_DB}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AK_POSTGRES_PASSWORD}
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+    depends_on:
+      authentik_server:
+        condition: service_started
+
+  authentik_proxy:
+    image: ghcr.io/goauthentik/proxy:${AUTHENTIK_TAG}
+    restart: unless-stopped
+    environment:
+      AUTHENTIK_HOST: http://authentik_server:9000
+      AUTHENTIK_HOST_BROWSER: https://${AUTH_DOMAIN}
+      AUTHENTIK_TOKEN: ${AUTHENTIK_OUTPOST_TOKEN}
+    depends_on:
+      authentik_server:
+        condition: service_started
+    expose:
+      - "9000"
+
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:latest
+    restart: unless-stopped
+    environment:
+      WEBUI_AUTH: ${WEBUI_AUTH}
+      WEBUI_AUTH_TRUSTED_EMAIL_HEADER: X-Authentik-Email
+      WEBUI_AUTH_TRUSTED_NAME_HEADER: X-Authentik-Name
+      WEBUI_AUTH_TRUSTED_GROUPS_HEADER: X-Authentik-Groups
+    volumes:
+      - openwebui_data:/app/backend/data
+    expose:
+      - "8080"
+
+  admin_api:
+    build: ./admin_app
+    restart: unless-stopped
+    expose:
+      - "4000"
+
+volumes:
+  caddy_data:
+  caddy_config:
+  ak_pgdata:
+  openwebui_data:

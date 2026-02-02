@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% set title = "URLs" %}
+{% block content %}
+<div class="container">
+  <div class="flex items-end justify-between gap-3 flex-wrap mb-4">
+    <div>
+      <h1 class="h1">URLs</h1>
+      <p class="p-muted">Filter and manage source URLs.</p>
+    </div>
+    <a href="/admin/urls/add" class="btn btn-primary">Add URL</a>
+  </div>
+
+  <div class="card card-pad" style="margin-bottom:12px;">
+    <form method="get" class="grid grid-4">
+      <div>
+        <label class="block mb-1 text-xs font-medium text-gray-700">Search</label>
+        <input name="q" value="{{ filters.q }}" placeholder="contains..." class="input">
+      </div>
+      <div>
+        <label class="block mb-1 text-xs font-medium text-gray-700">Scope</label>
+        <select name="scope" class="input">
+          <option value="all" {{ "selected" if filters.scope=="all" else "" }}>all</option>
+          <option value="global" {{ "selected" if filters.scope=="global" else "" }}>global</option>
+          <option value="private" {{ "selected" if filters.scope=="private" else "" }}>private</option>
+        </select>
+      </div>
+      <div>
+        <label class="block mb-1 text-xs font-medium text-gray-700">Status</label>
+        <select name="status" class="input">
+          <option value="all" {{ "selected" if filters.status=="all" else "" }}>all</option>
+          <option value="queued" {{ "selected" if filters.status=="queued" else "" }}>queued</option>
+          <option value="ingested" {{ "selected" if filters.status=="ingested" else "" }}>ingested</option>
+          <option value="failed" {{ "selected" if filters.status=="failed" else "" }}>failed</option>
+        </select>
+      </div>
+      <div>
+        <label class="block mb-1 text-xs font-medium text-gray-700">Tag</label>
+        <input name="tag" value="{{ filters.tag }}" placeholder="tag..." class="input">
+      </div>
+      <div class="row">
+        <button class="btn btn-primary">Apply</button>
+        <a href="/admin/urls" class="btn">Reset</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="card tablewrap">
+    
+      <table class="w-full text-sm text-left text-gray-600">
+        <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+          <tr>
+            <th class="px-4 py-3">URL</th>
+            <th class="px-4 py-3">Scope</th>
+            <th class="px-4 py-3">Status</th>
+            <th class="px-4 py-3">Tags</th>
+            <th class="px-4 py-3">Created</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for it in items %}
+          <tr class="border-t">
+            <td class="px-4 py-3 text-gray-900 font-medium">{{ it.url }}</td>
+            <td class="px-4 py-3"><span class="text-xs px-2 py-1 rounded bg-gray-100">{{ it.scope }}</span></td>
+            <td class="px-4 py-3">
+              {% if it.status == "ingested" %}
+                <span class="text-xs px-2 py-1 rounded bg-green-100 text-green-700">ingested</span>
+              {% elif it.status == "failed" %}
+                <span class="text-xs px-2 py-1 rounded bg-red-100 text-red-700">failed</span>
+              {% else %}
+                <span class="text-xs px-2 py-1 rounded bg-yellow-100 text-yellow-800">queued</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              {% for t in it.tags %}
+                <span class="text-xs px-2 py-1 rounded bg-gray-100 mr-1">{{ t }}</span>
+              {% endfor %}
+            </td>
+            <td class="px-4 py-3 text-xs text-gray-500">{{ it.created_at }}</td>
+          </tr>
+        {% endfor %}
+        {% if items|length == 0 %}
+          <tr><td class="px-4 py-6 text-gray-500" colspan="5">No URLs match the current filters.</td></tr>
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+{% endblock %}

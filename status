@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+docker compose ps
+echo ""
+echo "Backend /v1/models:"
+curl -s http://localhost:8000/v1/models || true

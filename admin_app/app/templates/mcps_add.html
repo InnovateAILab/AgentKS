@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% set title = "Add MCP" %}
+{% block content %}
+<div class="container" style="max-width:850px;">
+  <div class="mb-6">
+    <h1 class="h1">Add MCP</h1>
+    <p class="p-muted">Register a tool/MCP endpoint (admin-only in this demo).</p>
+  </div>
+
+  <div class="card card-pad">
+    <form method="post" action="/admin/mcps/add" class="space-y-4">
+      <div>
+        <label class="block mb-2 text-sm font-medium text-gray-900">Name</label>
+        <input name="name" required class="input" placeholder="mcp-search">
+      </div>
+
+      <div>
+        <label class="block mb-2 text-sm font-medium text-gray-900">Endpoint</label>
+        <input name="endpoint" required class="input" placeholder="http://mcp:8080">
+      </div>
+
+      <div class="grid grid-3">
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Kind</label>
+          <select name="kind" class="input">
+            <option value="http">http</option>
+            <option value="stdio">stdio</option>
+            <option value="grpc">grpc</option>
+          </select>
+        </div>
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Status</label>
+          <select name="status" class="input">
+            <option value="enabled">enabled</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </div>
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Tags</label>
+          <input name="tags" class="input" placeholder="tools, rag">
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button type="submit" class="btn btn-primary">Save</button>
+        <a href="/admin/mcps" class="btn">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

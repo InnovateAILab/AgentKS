@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+
+echo "==> Starting stack..."
+docker compose up -d --build
+
+echo "==> Waiting for Ollama..."
+until curl -sSf http://localhost:11434/api/tags >/dev/null 2>&1; do
+  sleep 1
+done
+
+CHAT_MODEL="${OLLAMA_CHAT_MODEL:-llama3.1}"
+EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
+
+echo "==> Pulling models (if missing): ${CHAT_MODEL}, ${EMBED_MODEL}"
+docker compose exec -T ollama ollama pull "${CHAT_MODEL}" >/dev/null 2>&1 || true
+docker compose exec -T ollama ollama pull "${EMBED_MODEL}" >/dev/null 2>&1 || true
+
+echo "==> Waiting for backend..."
+until curl -sSf http://localhost:8000/v1/models >/dev/null 2>&1; do
+  sleep 1
+done
+
+echo ""
+echo "✅ Open WebUI:  http://localhost:3000"
+echo "✅ Backend:    http://localhost:8000 (OpenAI-compatible /v1)"
+echo "✅ SearxNG:    http://localhost:8081"
+echo ""
+echo "Open WebUI -> Settings -> Connections -> OpenAI:"
+echo "  Base URL: http://rag-backend:8000/v1"
+echo "  API key : anything"
+echo "  Model   : rag-agent"

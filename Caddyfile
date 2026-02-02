@@ -1,0 +1,30 @@
+{$DOMAIN} {
+
+  # Authentik outpost endpoints (required by forward_auth)
+  reverse_proxy /outpost.goauthentik.io/* http://authentik_proxy:9000
+
+  # /webui protected by forward_auth
+  handle_path /webui* {
+    forward_auth http://authentik_proxy:9000 {
+      uri /outpost.goauthentik.io/auth/caddy
+      copy_headers X-Authentik-Email X-Authentik-Name X-Authentik-Groups
+    }
+    reverse_proxy http://openwebui:8080
+  }
+
+  # /admin protected by forward_auth (includes /admin/api/*)
+  handle_path /admin* {
+    forward_auth http://authentik_proxy:9000 {
+      uri /outpost.goauthentik.io/auth/caddy
+      copy_headers X-Authentik-Email X-Authentik-Name X-Authentik-Groups
+    }
+    reverse_proxy http://admin_api:4000
+  }
+
+  respond 404
+}
+
+# Authentik UI on a subdomain (recommended)
+{$AUTH_DOMAIN} {
+  reverse_proxy http://authentik_server:9000
+}
