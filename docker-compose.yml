@@ -125,6 +125,21 @@ services:
     volumes:
       - ./searxng:/etc/searxng
 
+  basic_tools_mcp_service:
+    build: ./backend/basic_tools_mcp_service
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SEARXNG_URL=http://searxng:8080
+      - INSPIRE_BASE_URL=https://inspirehep.net
+      - CDS_BASE_URL=https://cds.cern.ch
+      - ARXIV_API_URL=http://export.arxiv.org/api/query
+    depends_on:
+      - searxng
+    # MCP server using SSE/HTTP transport on port 5000
+
   backend:
     build: ./backend/backend_app
     environment:
@@ -150,10 +165,13 @@ services:
     ports:
       - "8000:8000"
       - "4000:4000"
+      - "4001:4001"
+      - "4002:4002"
     depends_on:
       - postgres
       - ollama
       - searxng
+    # Backend with web (8000), app (4000), rag_mcp (4001), and rag_injector (4002) managed by supervisord
 
   # The backend docker-compose included an openwebui service too; the root
   # stack already defines `openwebui`. If you prefer the backend's image/vars

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% set title = "Edit LLM" %}
+{% block content %}
+<div class="container">
+  <div class="mb-4">
+    <h1 class="h1">Edit LLM: {{ llm.name }}</h1>
+    <p class="p-muted">Update LLM configuration and settings.</p>
+  </div>
+
+  <form method="post" class="max-w-3xl">
+    <div class="card card-pad">
+      <div class="grid grid-2 gap-4">
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Name *</label>
+          <input type="text" name="name" required class="input" value="{{ llm.name }}">
+        </div>
+
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Provider *</label>
+          <select name="provider" required class="input">
+            <option value="openai" {{ "selected" if llm.provider=="openai" else "" }}>OpenAI</option>
+            <option value="azure" {{ "selected" if llm.provider=="azure" else "" }}>Azure OpenAI</option>
+            <option value="anthropic" {{ "selected" if llm.provider=="anthropic" else "" }}>Anthropic (Claude)</option>
+            <option value="bedrock" {{ "selected" if llm.provider=="bedrock" else "" }}>AWS Bedrock</option>
+            <option value="google" {{ "selected" if llm.provider=="google" else "" }}>Google (Gemini)</option>
+            <option value="fireworks" {{ "selected" if llm.provider=="fireworks" else "" }}>Fireworks AI</option>
+            <option value="ollama" {{ "selected" if llm.provider=="ollama" else "" }}>Ollama (Local)</option>
+          </select>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="block mb-2 text-sm font-medium text-gray-900">Model Name *</label>
+          <input type="text" name="model_name" required class="input" value="{{ llm.model_name }}">
+          <p class="mt-1 text-xs text-gray-500">The actual model identifier (e.g., gpt-4, claude-3-opus, gemini-pro)</p>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="block mb-2 text-sm font-medium text-gray-900">Description</label>
+          <textarea name="description" rows="2" class="input">{{ llm.description or '' }}</textarea>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="block mb-2 text-sm font-medium text-gray-900">Auth Metadata (JSON)</label>
+          <textarea name="auth_meta" rows="6" class="input font-mono text-xs">{{ llm.auth_meta }}</textarea>
+          <p class="mt-1 text-xs text-gray-500">
+            JSON object with auth configuration. Use <code>_env</code> suffix to reference environment variables.
+          </p>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="block mb-2 text-sm font-medium text-gray-900">Config (JSON)</label>
+          <textarea name="config" rows="4" class="input font-mono text-xs">{{ llm.config }}</textarea>
+          <p class="mt-1 text-xs text-gray-500">
+            JSON object with model configuration (temperature, max_tokens, etc.)
+          </p>
+        </div>
+
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Priority</label>
+          <input type="number" name="priority" value="{{ llm.priority }}" class="input" min="1" max="1000">
+          <p class="mt-1 text-xs text-gray-500">Lower number = higher priority (default: 100)</p>
+        </div>
+
+        <div class="flex items-center gap-6">
+          <div class="flex items-center">
+            <input type="checkbox" name="enabled" value="true" id="enabled" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded" {{ "checked" if llm.enabled else "" }}>
+            <label for="enabled" class="ml-2 text-sm font-medium text-gray-900">Enabled</label>
+          </div>
+
+          <div class="flex items-center">
+            <input type="checkbox" name="is_default" value="true" id="is_default" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded" {{ "checked" if llm.is_default else "" }}>
+            <label for="is_default" class="ml-2 text-sm font-medium text-gray-900">Set as Default</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex gap-2">
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+        <a href="/admin/llms" class="btn">Cancel</a>
+        <form method="post" action="/admin/llms/{{ llm.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this LLM? This cannot be undone.')">
+          <button type="submit" class="btn btn-danger ml-auto">Delete LLM</button>
+        </form>
+      </div>
+    </div>
+  </form>
+
+  <div class="card card-pad mt-4 max-w-3xl">
+    <h3 class="text-sm font-semibold text-gray-900 mb-2">💡 Tips</h3>
+    <ul class="text-sm text-gray-700 space-y-1 list-disc pl-5">
+      <li>Lower priority values are tried first in fallback chains</li>
+      <li>Only one LLM can be set as default per scope</li>
+      <li>Disabled LLMs are skipped in automatic selection</li>
+      <li>Auth metadata keys ending with <code>_env</code> are resolved from environment variables at runtime</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

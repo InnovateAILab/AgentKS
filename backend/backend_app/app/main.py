@@ -23,7 +23,9 @@ from langchain_core.documents import Document
 from langchain_core.tools import tool
 
 from .langgraph_adapter import run_agent_with_langgraph
-from .mcp import run_mcp_tool_async
+from tools import run_mcp_tool_async
+from tools.models import MCPSyncRequest
+from .llms import get_llm, get_llm_with_fallback
 
 
 # RAG helpers live in app.rag (imported after PGVector setup)
@@ -32,6 +34,12 @@ SEARXNG_URL = os.getenv("SEARXNG_URL", "http://searxng:8080")
 CDS_BASE_URL = os.getenv("CDS_BASE_URL", "https://cds.cern.ch")
 INSPIRE_BASE_URL = os.getenv("INSPIRE_BASE_URL", "https://inspirehep.net")
 ARXIV_API_URL = os.getenv("ARXIV_API_URL", "http://export.arxiv.org/api/query")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama2")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+COLLECTION_DOCS = os.getenv("COLLECTION_DOCS", "document_embeddings")
+COLLECTION_TOOLS = os.getenv("COLLECTION_TOOLS", "tool_embeddings")
 
 TOOL_SELECT_TOPK = int(os.getenv("TOOL_SELECT_TOPK", "6"))
 FETCH_TIMEOUT_SECONDS = int(os.getenv("FETCH_TIMEOUT_SECONDS", "25"))
@@ -47,7 +55,15 @@ PG_DSN = DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
 # =========================
 # LLM + Embeddings
 # =========================
-llm = ChatOllama(model=OLLAMA_CHAT_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
+# Try to load LLM from database, fallback to environment variables
+try:
+    llm = get_llm_with_fallback()
+    print("✓ Loaded LLM from database with fallback support")
+except Exception as e:
+    print(f"⚠ Failed to load LLM from database: {e}")
+    print(f"⚠ Falling back to environment-configured Ollama: {OLLAMA_CHAT_MODEL}")
+    llm = ChatOllama(model=OLLAMA_CHAT_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
+
 embeddings = OllamaEmbeddings(model=OLLAMA_EMBED_MODEL, base_url=OLLAMA_BASE_URL)
 
 
@@ -69,7 +85,7 @@ tool_vs = PGVector(
 )
 
 # RAG helpers (split into app.rag)
-from .rag import add_documents, rag_search, fetch_url_text, sha256_text, splitter  # type: ignore
+from .backup.rag import add_documents, rag_search, fetch_url_text, sha256_text, splitter  # type: ignore
 
 app = FastAPI(title="OpenWebUI Backend: RAG + Auto Tools + MCP (CDS + arXiv + INSPIRE-HEP + SearxNG)")
 
@@ -102,14 +118,6 @@ class ToolPatch(BaseModel):
     enabled: Optional[bool] = None
     scope: Optional[Literal["global", "admin_only"]] = None
     config: Optional[Dict[str, Any]] = None
-
-
-class MCPSyncRequest(BaseModel):
-    server_name: str
-    url: str
-    headers: Dict[str, str] = {}
-    scope: Literal["global", "admin_only"] = "global"
-    enabled: bool = True
 
 
 class IngestUrlsRequest(BaseModel):
@@ -402,19 +410,19 @@ def ensure_default_tools():
     # best-effort and idempotent: we only create a DB row when the tool name
     # is not already present.
     try:
-        from . import basic_tools
+        from .backup.backup import back
 
         tool_classes = [
-            basic_tools.DDGSearch,
-            basic_tools.Arxiv,
-            basic_tools.YouSearch,
-            basic_tools.SecFilings,
-            basic_tools.PressReleases,
-            basic_tools.PubMed,
-            basic_tools.Wikipedia,
-            basic_tools.Tavily,
-            basic_tools.TavilyAnswer,
-            basic_tools.DallE,
+            back.DDGSearch,
+            back.Arxiv,
+            back.YouSearch,
+            back.SecFilings,
+            back.PressReleases,
+            back.PubMed,
+            back.Wikipedia,
+            back.Tavily,
+            back.TavilyAnswer,
+            back.DallE,
         ]
 
         for cls in tool_classes:
@@ -863,3 +871,202 @@ def chat_completions(
         "model": req.model,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
     }
+
+
+# =========================
+# Tools Skill API - Dynamic tool discovery and invocation
+# =========================
+class ToolsSkillRequest(BaseModel):
+    query: str
+    discovery_k: Optional[int] = TOOL_SELECT_TOPK
+    min_score: Optional[float] = 0.3
+    use_hybrid_search: Optional[bool] = True
+
+
+class ToolsSkillResponse(BaseModel):
+    result: str
+    discovered_tools: List[str]
+
+
+@app.post("/api/tools-skill/query", response_model=ToolsSkillResponse)
+async def tools_skill_query(
+    req: ToolsSkillRequest,
+    x_authentik_email: Optional[str] = Header(default=None, alias="X-Authentik-Email"),
+    x_authentik_groups: Optional[str] = Header(default=None, alias="X-Authentik-Groups"),
+    x_openwebui_user_id: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Id"),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+):
+    """
+    Query using dynamic tool discovery and LangGraph workflow.
+    
+    This endpoint:
+    1. Discovers relevant tools based on the query using semantic search
+    2. Binds discovered tools to the LLM
+    3. Executes a LangGraph workflow to answer the query
+    4. Returns the result along with which tools were discovered
+    """
+    from .tools_skill import run_tools_skill_async
+    
+    user_id = get_user_id(x_authentik_email, x_openwebui_user_id, authorization)
+    role = get_user_role(x_authentik_groups, None)
+    
+    result = await run_tools_skill_async(
+        query=req.query,
+        user_id=user_id,
+        role=role,
+        llm=llm,
+        discovery_k=req.discovery_k or TOOL_SELECT_TOPK,
+        min_score=req.min_score or 0.3,
+        use_hybrid_search=req.use_hybrid_search if req.use_hybrid_search is not None else True,
+    )
+    
+    # Get discovered tools for response (semantic search)
+    from tools import discover_tools_hybrid
+    user_scope = [f"user:{user_id}", "global"]
+    discovered = discover_tools_hybrid(
+        query=req.query,
+        user_scope=user_scope,
+        top_k=req.discovery_k or TOOL_SELECT_TOPK,
+        enabled_only=True,
+        min_score=req.min_score or 0.3,
+    ) if req.use_hybrid_search else []
+    
+    return ToolsSkillResponse(
+        result=result,
+        discovered_tools=[t["name"] for t in discovered]
+    )
+
+
+@app.get("/api/tools-skill/test")
+async def tools_skill_test():
+    """Test endpoint to verify tools skill is working"""
+    from .tools_skill import run_tools_skill_async
+    
+    result = await run_tools_skill_async(
+        query="What is 2 + 2?",
+        user_id="test_user",
+        role="user",
+        llm=llm,
+    )
+    
+    return {
+        "status": "ok",
+        "test_query": "What is 2 + 2?",
+        "result": result
+    }
+
+
+# =========================
+# RAG Skill API - Retrieval-Augmented Generation
+# =========================
+class RAGSkillRequest(BaseModel):
+    query: str
+    rag_group: Optional[str] = None
+    k: Optional[int] = 5
+    score_threshold: Optional[float] = 0.3
+
+
+class RAGSkillResponse(BaseModel):
+    answer: str
+    num_docs_retrieved: int
+    rag_group: Optional[str]
+
+
+@app.post("/api/rag-skill/ask", response_model=RAGSkillResponse)
+async def rag_skill_ask(
+    req: RAGSkillRequest,
+    x_authentik_email: Optional[str] = Header(default=None, alias="X-Authentik-Email"),
+    x_openwebui_user_id: Optional[str] = Header(default=None, alias="X-OpenWebUI-User-Id"),
+):
+    """
+    Ask a question using RAG skill with document retrieval and LLM generation.
+    
+    This endpoint:
+    1. Retrieves relevant documents from RAG MCP service using vector search
+    2. Generates an answer using the LLM with retrieved context
+    3. Returns the answer with source citations
+    """
+    from .rag_skill import run_rag_skill_async, create_rag_skill_graph
+    
+    user_id = get_user_id(x_authentik_email, x_openwebui_user_id, None)
+    
+    # Run the RAG skill
+    result = await run_rag_skill_async(
+        query=req.query,
+        rag_group=req.rag_group,
+        k=req.k or 5,
+        score_threshold=req.score_threshold or 0.3,
+        llm=llm,
+    )
+    
+    # Get retrieval count (re-run retrieve to get count - could be optimized)
+    from tools import run_mcp_tool_async
+    import json as json_module
+    
+    try:
+        rag_result = await run_mcp_tool_async(
+            mcp_url=os.getenv("RAG_MCP_URL", "http://localhost:4002/mcp"),
+            headers={},
+            tool_name="rag_search",
+            payload={
+                "query": req.query,
+                "k": req.k or 5,
+                "rag_group": req.rag_group,
+                "score_threshold": req.score_threshold or 0.3,
+            }
+        )
+        if isinstance(rag_result, str):
+            rag_result = json_module.loads(rag_result)
+        num_docs = rag_result.get("num_results", 0)
+    except Exception:
+        num_docs = 0
+    
+    return RAGSkillResponse(
+        answer=result,
+        num_docs_retrieved=num_docs,
+        rag_group=req.rag_group,
+    )
+
+
+@app.get("/api/rag-skill/test")
+async def rag_skill_test():
+    """Test endpoint to verify RAG skill is working"""
+    from .rag_skill import run_rag_skill_async
+    
+    result = await run_rag_skill_async(
+        query="What is machine learning?",
+        k=3,
+        score_threshold=0.3,
+        llm=llm,
+    )
+    
+    return {
+        "status": "ok",
+        "test_query": "What is machine learning?",
+        "result": result
+    }
+
+
+@app.get("/api/rag-skill/groups")
+async def rag_skill_list_groups():
+    """List available RAG groups"""
+    from tools import run_mcp_tool_async
+    import json as json_module
+    
+    try:
+        result = await run_mcp_tool_async(
+            mcp_url=os.getenv("RAG_MCP_URL", "http://localhost:4002/mcp"),
+            headers={},
+            tool_name="rag_list_groups",
+            payload={"scope": "global"}
+        )
+        
+        if isinstance(result, str):
+            result = json_module.loads(result)
+        
+        return result
+    except Exception as e:
+        return {
+            "error": "Failed to fetch RAG groups",
+            "message": str(e)
+        }

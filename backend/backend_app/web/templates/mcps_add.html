@@ -16,7 +16,11 @@
 
       <div>
         <label class="block mb-2 text-sm font-medium text-gray-900">Endpoint</label>
-        <input name="endpoint" required class="input" placeholder="http://mcp:8080">
+        <div class="flex gap-2">
+          <input id="endpointInput" name="endpoint" required class="input" placeholder="http://mcp:8080">
+          <button type="button" id="discoverBtn" class="btn">Discover</button>
+        </div>
+        <div id="discoverStatus" class="text-sm text-gray-600 mt-2"></div>
       </div>
 
       <div class="grid grid-3">
@@ -41,6 +45,44 @@
         </div>
       </div>
 
+      <div>
+        <label class="block mb-2 text-sm font-medium text-gray-900">Description</label>
+        <input name="description" class="input" placeholder="Short description of this MCP">
+      </div>
+
+      <div class="grid grid-2">
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Resource</label>
+          <input name="resource" class="input" placeholder="e.g. search, qa, extractor">
+        </div>
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Context</label>
+          <input name="context" class="input" placeholder="Optional notes: auth, headers, example usage">
+        </div>
+      </div>
+
+      <div class="card card-pad">
+        <h3 class="h3">Auth / Headers (optional)</h3>
+        <p class="p-muted">Provide auth configuration for this MCP. You can supply a token or headers in JSON form.</p>
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Auth Type</label>
+          <select name="auth_type" class="input">
+            <option value="">none</option>
+            <option value="bearer">bearer</option>
+            <option value="basic">basic</option>
+            <option value="header">header</option>
+          </select>
+        </div>
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Auth Token / Value</label>
+          <input name="auth_token" class="input" placeholder="token or password">
+        </div>
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Headers (JSON)</label>
+          <textarea name="auth_headers" class="input" placeholder='{"X-Api-Key": "VALUE"}' rows="4"></textarea>
+        </div>
+      </div>
+
       <div class="flex items-center gap-3">
         <button type="submit" class="btn btn-primary">Save</button>
         <a href="/admin/mcps" class="btn">Cancel</a>
@@ -48,4 +90,51 @@
     </form>
   </div>
 </div>
+<script>
+  (function(){
+    const discoverBtn = document.getElementById('discoverBtn');
+    const endpointInput = document.getElementById('endpointInput');
+    const statusEl = document.getElementById('discoverStatus');
+    if (!discoverBtn) return;
+
+    discoverBtn.addEventListener('click', async function(){
+      const endpoint = endpointInput.value && endpointInput.value.trim();
+      if (!endpoint) {
+        statusEl.textContent = 'Please enter an endpoint to discover.';
+        return;
+      }
+      statusEl.textContent = 'Discovering...';
+
+      // collect auth fields if present in the form
+      const form = document.querySelector('form');
+      const authType = form.querySelector('[name="auth_type"]')?.value || '';
+      const authToken = form.querySelector('[name="auth_token"]')?.value || '';
+      const authHeaders = form.querySelector('[name="auth_headers"]')?.value || '';
+
+      const body = new URLSearchParams();
+      body.append('endpoint', endpoint);
+      if (authType) body.append('auth_type', authType);
+      if (authToken) body.append('auth_token', authToken);
+      if (authHeaders) body.append('auth_headers', authHeaders);
+
+      try {
+        const resp = await fetch('/admin/mcps/discover', { method: 'POST', body });
+        const j = await resp.json();
+        if (!j || !j.ok) {
+          statusEl.textContent = j?.error || 'Discovery failed';
+          return;
+        }
+        const data = j.data || {};
+        // fill discovered fields if present
+        if (data.name) form.querySelector('[name="name"]').value = data.name;
+        if (data.description) form.querySelector('[name="description"]').value = data.description;
+        if (data.resource) form.querySelector('[name="resource"]').value = data.resource;
+        if (data.tags && Array.isArray(data.tags)) form.querySelector('[name="tags"]').value = data.tags.join(', ');
+        statusEl.textContent = 'Discovered and filled fields.';
+      } catch (err) {
+        statusEl.textContent = 'Discovery error: ' + (err && err.message ? err.message : String(err));
+      }
+    });
+  })();
+</script>
 {% endblock %}

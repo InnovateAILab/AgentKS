@@ -15,7 +15,13 @@ Key components
 - Authentik (authentication provider)
 - OpenWebUI (web UI for models)
 - admin UI (Flowbite-style FastAPI app in `admin_app/`)
-- rag backend (FastAPI app in `backend_app/`)
+- rag backend (FastAPI app in `backend_app/`) with multiple services:
+  - web (8000) - Main web API
+  - app (4000) - Admin UI
+  - rag_mcp (4001) - RAG MCP retrieval service
+  - rag_injector (4002) - RAG injection REST service
+  - url_watcher - Background daemon
+- basic_tools_mcp (5000) - General utility MCP service
 
 Architecture highlights
 - Caddy is the public router. It protects `/webui`, `/admin*` and `/api` with Authentik via forward_auth and copies identity headers into proxied requests (see `Caddyfile`).

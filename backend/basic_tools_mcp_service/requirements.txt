@@ -1,0 +1,13 @@
+fastmcp>=0.1.0
+fastapi>=0.100.0
+httpx>=0.24.0
+uvicorn>=0.22.0
+requests>=2.31.0
+# LangChain Community tools
+langchain-community>=0.2.0
+langchain-core>=0.2.0
+# Search dependencies
+duckduckgo-search>=5.0.0
+arxiv>=2.1.0
+wikipedia>=1.4.0
+tavily-python>=0.3.0

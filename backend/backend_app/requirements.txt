@@ -15,6 +15,7 @@ langchain-ollama==0.2.2
 
 langchain-mcp-adapters
 mcp
+fastmcp>=0.2.0
 
 langgraph==1.0.7
 alembic==1.11.1

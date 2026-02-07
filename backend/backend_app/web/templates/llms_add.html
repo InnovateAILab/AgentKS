@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% set title = "Add LLM" %}
+{% block content %}
+<div class="container">
+  <div class="mb-4">
+    <h1 class="h1">Add New LLM</h1>
+    <p class="p-muted">Register a new large language model.</p>
+  </div>
+
+  <form method="post" class="max-w-3xl">
+    <div class="card card-pad">
+      <div class="grid grid-2 gap-4">
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Name *</label>
+          <input type="text" name="name" required class="input" placeholder="GPT-4 Turbo">
+        </div>
+
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Provider *</label>
+          <select name="provider" required class="input">
+            <option value="">Select provider...</option>
+            <option value="openai">OpenAI</option>
+            <option value="azure">Azure OpenAI</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="bedrock">AWS Bedrock</option>
+            <option value="google">Google (Gemini)</option>
+            <option value="fireworks">Fireworks AI</option>
+            <option value="ollama">Ollama (Local)</option>
+          </select>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="block mb-2 text-sm font-medium text-gray-900">Model Name *</label>
+          <input type="text" name="model_name" required class="input" placeholder="gpt-4-turbo-preview">
+          <p class="mt-1 text-xs text-gray-500">The actual model identifier (e.g., gpt-4, claude-3-opus, gemini-pro)</p>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="block mb-2 text-sm font-medium text-gray-900">Description</label>
+          <textarea name="description" rows="2" class="input" placeholder="Optional description of this LLM"></textarea>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="block mb-2 text-sm font-medium text-gray-900">Auth Metadata (JSON)</label>
+          <textarea name="auth_meta" rows="6" class="input font-mono text-xs" placeholder='{"api_key_env": "OPENAI_API_KEY", "base_url_env": "OPENAI_API_BASE"}'>{}</textarea>
+          <p class="mt-1 text-xs text-gray-500">
+            JSON object with auth configuration. Common fields: <code>api_key_env</code>, <code>base_url_env</code>, <code>endpoint_env</code>, etc.
+            Use <code>_env</code> suffix to reference environment variables.
+          </p>
+        </div>
+
+        <div class="sm:col-span-2">
+          <label class="block mb-2 text-sm font-medium text-gray-900">Config (JSON)</label>
+          <textarea name="config" rows="4" class="input font-mono text-xs" placeholder='{"temperature": 0, "max_tokens": 2000}'>{}</textarea>
+          <p class="mt-1 text-xs text-gray-500">
+            JSON object with model configuration. Common fields: <code>temperature</code>, <code>max_tokens</code>, <code>streaming</code>, etc.
+          </p>
+        </div>
+
+        <div>
+          <label class="block mb-2 text-sm font-medium text-gray-900">Priority</label>
+          <input type="number" name="priority" value="100" class="input" min="1" max="1000">
+          <p class="mt-1 text-xs text-gray-500">Lower number = higher priority in fallback chain (default: 100)</p>
+        </div>
+
+        <div class="flex items-center gap-6">
+          <div class="flex items-center">
+            <input type="checkbox" name="enabled" value="true" id="enabled" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded">
+            <label for="enabled" class="ml-2 text-sm font-medium text-gray-900">Enabled</label>
+          </div>
+
+          <div class="flex items-center">
+            <input type="checkbox" name="is_default" value="true" id="is_default" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded">
+            <label for="is_default" class="ml-2 text-sm font-medium text-gray-900">Set as Default</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex gap-2">
+        <button type="submit" class="btn btn-primary">Add LLM</button>
+        <a href="/admin/llms" class="btn">Cancel</a>
+      </div>
+    </div>
+  </form>
+
+  <div class="card card-pad mt-4 max-w-3xl">
+    <h3 class="text-sm font-semibold text-gray-900 mb-2">📚 Common Auth Metadata Examples</h3>
+    <div class="space-y-3 text-xs font-mono">
+      <div>
+        <strong class="text-gray-700">OpenAI:</strong>
+        <pre class="bg-gray-50 p-2 rounded mt-1">{"api_key_env": "OPENAI_API_KEY"}</pre>
+      </div>
+      <div>
+        <strong class="text-gray-700">Azure OpenAI:</strong>
+        <pre class="bg-gray-50 p-2 rounded mt-1">{"api_key_env": "AZURE_OPENAI_API_KEY", "endpoint_env": "AZURE_OPENAI_API_BASE", "deployment_name_env": "AZURE_OPENAI_DEPLOYMENT_NAME", "api_version_env": "AZURE_OPENAI_API_VERSION"}</pre>
+      </div>
+      <div>
+        <strong class="text-gray-700">Anthropic:</strong>
+        <pre class="bg-gray-50 p-2 rounded mt-1">{"api_key_env": "ANTHROPIC_API_KEY"}</pre>
+      </div>
+      <div>
+        <strong class="text-gray-700">Ollama:</strong>
+        <pre class="bg-gray-50 p-2 rounded mt-1">{"base_url_env": "OLLAMA_BASE_URL"}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

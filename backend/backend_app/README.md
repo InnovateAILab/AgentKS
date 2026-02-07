@@ -5,8 +5,12 @@ This folder contains the backend pieces for AgentKS: two FastAPI apps (the admin
 Overview
 - admin web UI: `web/` — Flowbite-style FastAPI app that serves `/admin` (container port 8000).
 - RAG backend: `app/` — RAG logic, tools, and OpenAI-compatible endpoints (container port 4000).
+- RAG services: `rag/` — RAG-specific services and utilities:
+  - `rag_mcp/` — MCP server for RAG retrieval (port 4001)
+  - `rag_injector/` — REST API for document injection (port 4002)
+  - `rag_common.py` — Shared utilities for embeddings and database operations
 - Migrations: Alembic-managed migrations live under `migrations/versions/`.
-- Startup: the backend image runs migrations at startup and then uses `supervisord` to run both FastAPI apps.
+- Startup: the backend image runs migrations at startup and then uses `supervisord` to run all services.
 
 Quick start — full stack
 1. Create a `.env` at the repo root with values referenced by `docker-compose.yml` (see suggested variables below).
@@ -42,10 +46,15 @@ What happens on container start
 - On success, `supervisord` (configured in `supervisord.conf`) launches:
   - `uvicorn web.main:app --host 0.0.0.0 --port 8000` (admin UI)
   - `uvicorn app.main:app --host 0.0.0.0 --port 4000` (RAG backend)
+  - `python -u rag/rag_mcp/main.py` (RAG MCP server on port 4001)
+  - `uvicorn rag.rag_injector.main:app --host 0.0.0.0 --port 4002` (RAG injection REST API)
+  - `url_watcher` daemon (background URL processing)
 
 Health & quick checks
 - Admin health: GET http://localhost:8000/admin/api/health -> {"ok": true}
 - Backend models: GET http://localhost:4000/v1/models
+- RAG MCP health: Check via MCP client on port 4001
+- RAG injection health: GET http://localhost:4002/health -> {"status": "healthy"}
 
 If your compose deployment proxies these services behind Caddy, test direct endpoints with Authentik headers when needed e.g.:
 

@@ -27,7 +27,7 @@ import psycopg
 # with Python path such that `app` is importable (e.g. when run from
 # backend/backend_app or with PYTHONPATH set accordingly).
 try:
-    from app.rag import fetch_url_text, add_documents, sha256_text
+    from backend.backend_app.app.backup.rag import fetch_url_text, add_documents, sha256_text
     from app.main import mark_source_status, COLLECTION_DOCS
     from langchain_core.documents import Document
 except Exception:  # pragma: no cover - import-time fallback

@@ -53,6 +53,8 @@
             <th class="px-4 py-3">Name</th>
             <th class="px-4 py-3">Endpoint</th>
             <th class="px-4 py-3">Kind</th>
+            <th class="px-4 py-3">Description</th>
+            <th class="px-4 py-3">Resource</th>
             <th class="px-4 py-3">Status</th>
             <th class="px-4 py-3">Tags</th>
             <th class="px-4 py-3">Created</th>
@@ -65,6 +67,8 @@
             <td class="px-4 py-3 text-gray-900 font-medium">{{ it.name }}</td>
             <td class="px-4 py-3 font-mono text-xs">{{ it.endpoint }}</td>
             <td class="px-4 py-3"><span class="text-xs px-2 py-1 rounded bg-gray-100">{{ it.kind }}</span></td>
+            <td class="px-4 py-3 text-sm text-gray-700">{{ it.description or '' }}</td>
+            <td class="px-4 py-3 text-sm text-gray-700">{{ it.resource or '' }}</td>
             <td class="px-4 py-3">
               {% if it.status == "enabled" %}
                 <span class="text-xs px-2 py-1 rounded bg-green-100 text-green-700">enabled</span>
