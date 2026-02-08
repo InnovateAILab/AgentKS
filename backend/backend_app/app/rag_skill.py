@@ -336,6 +336,93 @@ def run_rag_skill(
     ))
 
 
+async def retrieve_documents_async(
+    query: str,
+    rag_group: Optional[str] = None,
+    k: int = DEFAULT_RAG_K,
+    score_threshold: float = DEFAULT_SCORE_THRESHOLD,
+    rag_mcp_url: str = RAG_MCP_URL,
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve documents from RAG MCP service without LLM generation.
+    
+    This function only performs the retrieval step, returning raw documents
+    with their metadata and similarity scores. No LLM generation is performed.
+    
+    Args:
+        query: Search query
+        rag_group: Optional RAG group to search within
+        k: Number of documents to retrieve
+        score_threshold: Minimum similarity score
+        rag_mcp_url: URL of RAG MCP service
+    
+    Returns:
+        List of document dictionaries with content, metadata, and scores
+    """
+    try:
+        # Call RAG MCP service
+        result = await run_mcp_tool_async(
+            mcp_url=rag_mcp_url,
+            headers={},
+            tool_name="rag_search",
+            payload={
+                "query": query,
+                "k": k,
+                "rag_group": rag_group,
+                "score_threshold": score_threshold,
+            }
+        )
+        
+        # Parse result
+        if isinstance(result, str):
+            result = json.loads(result)
+        
+        if "error" in result:
+            print(f"❌ RAG retrieval error: {result.get('message', 'Unknown error')}")
+            return []
+        
+        retrieved_docs = result.get("results", [])
+        return retrieved_docs
+        
+    except Exception as e:
+        print(f"❌ Exception during retrieval: {e}")
+        return []
+
+
+def retrieve_documents(
+    query: str,
+    rag_group: Optional[str] = None,
+    k: int = DEFAULT_RAG_K,
+    score_threshold: float = DEFAULT_SCORE_THRESHOLD,
+    rag_mcp_url: str = RAG_MCP_URL,
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve documents from RAG MCP service without LLM generation (synchronous wrapper).
+    
+    This function only performs the retrieval step, returning raw documents
+    with their metadata and similarity scores. No LLM generation is performed.
+    
+    Args:
+        query: Search query
+        rag_group: Optional RAG group to search within
+        k: Number of documents to retrieve
+        score_threshold: Minimum similarity score
+        rag_mcp_url: URL of RAG MCP service
+    
+    Returns:
+        List of document dictionaries with content, metadata, and scores
+    """
+    import asyncio
+    
+    return asyncio.run(retrieve_documents_async(
+        query=query,
+        rag_group=rag_group,
+        k=k,
+        score_threshold=score_threshold,
+        rag_mcp_url=rag_mcp_url,
+    ))
+
+
 # Example usage
 if __name__ == "__main__":
     import asyncio

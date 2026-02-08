@@ -30,6 +30,17 @@
     reverse_proxy http://backend:8000
   }
 
+  # /rag protected by forward_auth, strips /rag prefix before forwarding
+  # Client: /rag/health -> Backend: /health
+  # Client: /rag/upload -> Backend: /upload
+  handle_path /rag* {
+    forward_auth http://authentik_proxy:9000 {
+      uri /outpost.goauthentik.io/auth/caddy
+      copy_headers X-Authentik-Email X-Authentik-Name X-Authentik-Groups
+    }
+    reverse_proxy http://backend:4002
+  }
+
   respond 404
 }
 

@@ -103,8 +103,13 @@ services:
       WEBUI_AUTH_TRUSTED_EMAIL_HEADER: X-Authentik-Email
       WEBUI_AUTH_TRUSTED_NAME_HEADER: X-Authentik-Name
       WEBUI_AUTH_TRUSTED_GROUPS_HEADER: X-Authentik-Groups
+      # PostgreSQL database configuration
+      DATABASE_URL: postgresql://${AK_POSTGRES_USER}:${AK_POSTGRES_PASSWORD}@postgres:5432/${OPENWEBUI_POSTGRES_DB:-openwebui}
     volumes:
       - openwebui_data:/app/backend/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     expose:
       - "8080"
 
